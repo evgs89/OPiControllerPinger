@@ -4,23 +4,20 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
-	"os/exec"
 	"time"
 
+	"OPiControllerPinger/utils"
 	"github.com/streadway/amqp"
 )
 
-func ping(ip string) bool {
-	run := exec.Command("ping", ip, "-c 1", "-w 1")
-	err := run.Run()
-	return err == nil
-}
+const rabbitMqConnection = "amqp://guest:guest@localhost:5672/"
 
 type address struct {
-	ip string
-	state bool
+	ip         string
+	state      bool
 	lastChange time.Time
 }
 
@@ -28,7 +25,7 @@ func (a *address) StrFormat() string {
 	return fmt.Sprintf("IP: %s, online: %t since: %v", a.ip, a.state, a.lastChange)
 }
 
-func (a *address)  MarshalJSON() ([]byte, error) {
+func (a *address) MarshalJSON() ([]byte, error) {
 	ip, _ := json.Marshal(a.ip)
 	state, _ := json.Marshal(a.state)
 	lastChange, _ := json.Marshal(a.lastChange)
@@ -69,10 +66,16 @@ func failOnError(err error, msg string) {
 	}
 }
 
+func openLogFile() *os.File {
+	fileObj, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+	failOnError(err, "Error opening logfile")
+	return fileObj
+}
+
 func updateState(addressList []*address) error {
 	for idx, addr := range addressList {
 		prevstate := addr.state
-		addr.state = ping(addr.ip)
+		addr.state = utils.Ping(addr.ip)
 		if addr.state != prevstate {
 			addr.lastChange = time.Now()
 		}
@@ -81,16 +84,24 @@ func updateState(addressList []*address) error {
 	return nil
 }
 
-func main () {
+func main() {
 	const settingsFile = "settings.ini"
-	const rabbitMqConnection = "amqp://guest:guest@localhost:5672/"
 
+	logfile := openLogFile()
+	defer logfile.Close()
+	remoteLogger, err := utils.NewRemoteLogger(rabbitMqConnection)
+	defer remoteLogger.Close()
+	if err != nil {
+		os.Exit(1)
+	}
+	logWriter := io.MultiWriter(logfile, remoteLogger)
+	log.SetOutput(logWriter)
 	ipList := readSettings(settingsFile)
 	var addressList []*address
 	for _, address := range ipList {
 		addressList = append(addressList, NewAddress(address))
 	}
-	err := updateState(addressList)
+	err = updateState(addressList)
 	conn, err := amqp.Dial(rabbitMqConnection)
 	failOnError(err, "Failed to connect Rabbit")
 	defer conn.Close()
@@ -99,21 +110,21 @@ func main () {
 	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
-		"messages", // name
-		"topic",    // type
-		false,      // durable
-		false,      // auto-deleted
-		false,      // internal
-		false,      // no-wait
-		nil,        // arguments
+		"messages",
+		"topic",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	failOnError(err, "Failed to declare an exchange")
 	for {
 		msg, err := json.Marshal(addressList)
-		failOnError(err, "Failed to JSONify message")
+		failOnError(err, "Failed to JSON-ify message")
 		err = ch.Publish(
 			"messages",
-			"ping",
+			"Ping",
 			false,
 			false,
 			amqp.Publishing{
@@ -122,6 +133,6 @@ func main () {
 			})
 		log.Println(string(msg))
 		failOnError(err, "Failed to publish message")
-		time.Sleep(5*time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
