@@ -14,6 +14,7 @@ import (
 )
 
 const rabbitMqConnection = "amqp://guest:guest@localhost:5672/"
+const maxLogSize = 1048576
 
 type address struct {
 	ip         string
@@ -69,6 +70,13 @@ func failOnError(err error, msg string) {
 func openLogFile() *os.File {
 	fileObj, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	failOnError(err, "Error opening logfile")
+	fileInfo, err := fileObj.Stat()
+	if fileInfo.Size > maxLogSize {
+		_ := os.Remove("log.txt.old")
+		fileObj.Close()
+		os.Rename("log.txt", "log.txt.old")
+		return openLogFile()
+	}
 	return fileObj
 }
 
@@ -78,6 +86,13 @@ func updateState(addressList []*address) error {
 		addr.state = utils.Ping(addr.ip)
 		if addr.state != prevstate {
 			addr.lastChange = time.Now()
+			if addr.state {
+				msg := fmt.Sprintf("%s is UP", addr.ip)
+			}
+			else {
+				msg := fmt.Sprintf("%s is DOWN", addr.ip)
+			}
+			log.Println(msg)
 		}
 		addressList[idx] = addr
 	}

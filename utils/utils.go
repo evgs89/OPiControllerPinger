@@ -2,18 +2,17 @@ package utils
 
 import (
 	"fmt"
-	"github.com/streadway/amqp"
 	"os/exec"
 	"time"
-)
 
+	"github.com/streadway/amqp"
+)
 
 func Ping(ip string) bool {
 	run := exec.Command("Ping", ip, "-c 1", "-w 1")
 	err := run.Run()
 	return err == nil
 }
-
 
 type RemoteLogger struct {
 	conn     *amqp.Connection
