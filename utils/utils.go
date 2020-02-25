@@ -9,15 +9,15 @@ import (
 )
 
 func Ping(ip string) bool {
-	run := exec.Command("Ping", ip, "-c 1", "-w 1")
+	run := exec.Command("ping", ip, "-c 1", "-w 1")
 	err := run.Run()
 	return err == nil
 }
 
 type RemoteLogger struct {
-	conn     *amqp.Connection
-	channel  *amqp.Channel
-	exchange string
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	queue   amqp.Queue
 }
 
 func (r *RemoteLogger) Connect(connString string) error {
@@ -30,10 +30,9 @@ func (r *RemoteLogger) Connect(connString string) error {
 	if err != nil {
 		return err
 	}
-	err = r.channel.ExchangeDeclare(
-		"logging",
-		"topic",
-		false,
+	r.queue, err = r.channel.QueueDeclare(
+		"log",
+		true,
 		false,
 		false,
 		false,
@@ -51,8 +50,8 @@ func (r *RemoteLogger) Write(msg []byte) (int, error) {
 	datetime := time.Now().Format(time.UnixDate)
 	sendmsg := fmt.Sprintf("%s::PINGER::%v", datetime, string(msg))
 	err := r.channel.Publish(
-		"logging",
-		"ping",
+		"",
+		r.queue.Name,
 		false,
 		false,
 		amqp.Publishing{
@@ -69,6 +68,5 @@ func (r *RemoteLogger) Write(msg []byte) (int, error) {
 func NewRemoteLogger(connString string) (*RemoteLogger, error) {
 	var r RemoteLogger
 	err := r.Connect(connString)
-	r.exchange = "logging"
 	return &r, err
 }

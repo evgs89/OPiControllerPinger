@@ -14,7 +14,7 @@ import (
 )
 
 const rabbitMqConnection = "amqp://guest:guest@localhost:5672/"
-const maxLogSize = 1048576
+const maxLogSize int64 = 1048576
 
 type address struct {
 	ip         string
@@ -68,11 +68,11 @@ func failOnError(err error, msg string) {
 }
 
 func openLogFile() *os.File {
-	fileObj, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+	fileObj, err := os.OpenFile("log.txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	failOnError(err, "Error opening logfile")
 	fileInfo, err := fileObj.Stat()
-	if fileInfo.Size > maxLogSize {
-		_ := os.Remove("log.txt.old")
+	if fileInfo.Size() >= maxLogSize {
+		os.Remove("log.txt.old")
 		fileObj.Close()
 		os.Rename("log.txt", "log.txt.old")
 		return openLogFile()
@@ -82,15 +82,15 @@ func openLogFile() *os.File {
 
 func updateState(addressList []*address) error {
 	for idx, addr := range addressList {
-		prevstate := addr.state
+		previousState := addr.state
 		addr.state = utils.Ping(addr.ip)
-		if addr.state != prevstate {
+		if addr.state != previousState {
 			addr.lastChange = time.Now()
+			var msg string
 			if addr.state {
-				msg := fmt.Sprintf("%s is UP", addr.ip)
-			}
-			else {
-				msg := fmt.Sprintf("%s is DOWN", addr.ip)
+				msg = fmt.Sprintf("%s is UP", addr.ip)
+			} else {
+				msg = fmt.Sprintf("%s is DOWN", addr.ip)
 			}
 			log.Println(msg)
 		}
@@ -116,14 +116,15 @@ func main() {
 	for _, address := range ipList {
 		addressList = append(addressList, NewAddress(address))
 	}
-	err = updateState(addressList)
 	conn, err := amqp.Dial(rabbitMqConnection)
 	failOnError(err, "Failed to connect Rabbit")
 	defer conn.Close()
 	ch, err := conn.Channel()
 	failOnError(err, "Failed to open channel")
 	defer ch.Close()
-
+	args := make(amqp.Table)
+	args["x-message-ttl"] = 5000
+	args["x-max-length"] = 1
 	err = ch.ExchangeDeclare(
 		"messages",
 		"topic",
@@ -131,15 +132,16 @@ func main() {
 		false,
 		false,
 		false,
-		nil,
+		args,
 	)
 	failOnError(err, "Failed to declare an exchange")
 	for {
+		err = updateState(addressList)
 		msg, err := json.Marshal(addressList)
 		failOnError(err, "Failed to JSON-ify message")
 		err = ch.Publish(
 			"messages",
-			"Ping",
+			"ping",
 			false,
 			false,
 			amqp.Publishing{
