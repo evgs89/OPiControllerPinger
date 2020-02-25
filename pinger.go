@@ -110,6 +110,8 @@ func main() {
 		os.Exit(1)
 	}
 	logWriter := io.MultiWriter(logfile, remoteLogger)
+	log.SetFlags(0)
+	log.SetPrefix("")
 	log.SetOutput(logWriter)
 	ipList := readSettings(settingsFile)
 	var addressList []*address
