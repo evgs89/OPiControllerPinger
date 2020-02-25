@@ -148,7 +148,6 @@ func main() {
 				ContentType: "text/plain",
 				Body:        msg,
 			})
-		log.Println(string(msg))
 		failOnError(err, "Failed to publish message")
 		time.Sleep(5 * time.Second)
 	}
