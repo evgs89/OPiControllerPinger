@@ -47,7 +47,7 @@ func (r *RemoteLogger) Close() {
 }
 
 func (r *RemoteLogger) Write(msg []byte) (int, error) {
-	datetime := time.Now().Format(time.UnixDate)
+	datetime := time.Now().Unix()
 	sendmsg := fmt.Sprintf("%s::PINGER::%v", datetime, string(msg))
 	err := r.channel.Publish(
 		"",
